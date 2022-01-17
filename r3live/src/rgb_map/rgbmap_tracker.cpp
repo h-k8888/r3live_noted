@@ -62,31 +62,32 @@ void Rgbmap_tracker::update_and_append_track_pts( std::shared_ptr< Image_frame >
 {
     Common_tools::Timer tim;
     tim.tic();
-    double                    u_d, v_d;
+    double                    u_d, v_d;//地图点投影到当前影像u、v坐标
     int                       u_i, v_i;
-    double                    max_allow_repro_err = 2.0 * img_pose->m_img_cols / 320.0;
-    Hash_map_2d< int, float > map_2d_pts_occupied;
+    double                    max_allow_repro_err = 2.0 * img_pose->m_img_cols / 320.0; //最大误差阈值
+    Hash_map_2d< int, float > map_2d_pts_occupied; // u、 v  --> depth
 
+    ///遍历所有影像内的地图点，统计有效投影点，计算u、v到depth的hash
     for ( auto it = m_map_rgb_pts_in_last_frame_pos.begin(); it != m_map_rgb_pts_in_last_frame_pos.end(); )
     {
         RGB_pts *rgb_pt = ( ( RGB_pts * ) it->first );
-        vec_3    pt_3d = ( ( RGB_pts * ) it->first )->get_pos();
-        int      res = img_pose->project_3d_point_in_this_img( pt_3d, u_d, v_d, nullptr, 1.0 );
-        u_i = std::round( u_d / mini_dis ) * mini_dis;
-        v_i = std::round( v_d / mini_dis ) * mini_dis;
+        vec_3    pt_3d = ( ( RGB_pts * ) it->first )->get_pos();//3d地图点
+        int      res = img_pose->project_3d_point_in_this_img( pt_3d, u_d, v_d, nullptr, 1.0 );//T or F
+        u_i = std::round( u_d / mini_dis ) * mini_dis;//所在追踪分辨率下的珊格块u索引
+        v_i = std::round( v_d / mini_dis ) * mini_dis;//所在追踪分辨率下的珊格块v索引
 
-        double error = vec_2( u_d - it->second.x, v_d - it->second.y ).norm();
+        double error = vec_2( u_d - it->second.x, v_d - it->second.y ).norm(); //误差：投影像素坐标 - 2d像素坐标
 
         if ( error > max_allow_repro_err )
         {
             // cout << "Remove: " << vec_2(it->second.x, it->second.y).transpose() << " | " << vec_2(u, v).transpose()
             // << endl;
-            rgb_pt->m_is_out_lier_count++;
+            rgb_pt->m_is_out_lier_count++;//累计外点数量
             if ( rgb_pt->m_is_out_lier_count > 1 || ( error > max_allow_repro_err * 2 ) )
             // if (rgb_pt->m_is_out_lier_count > 3)
             {
                 rgb_pt->m_is_out_lier_count = 0; // Reset
-                it = m_map_rgb_pts_in_last_frame_pos.erase( it );
+                it = m_map_rgb_pts_in_last_frame_pos.erase( it );//误差过大，将地图点从hash表删除
                 continue;
             }
         }
@@ -95,10 +96,10 @@ void Rgbmap_tracker::update_and_append_track_pts( std::shared_ptr< Image_frame >
             rgb_pt->m_is_out_lier_count = 0;
         }
 
-        if ( res )
+        if ( res ) //投影点像素坐标有效
         {
-            double depth = ( pt_3d - img_pose->m_pose_w2c_t ).norm();
-            if ( map_2d_pts_occupied.if_exist( u_i, v_i ) == false )
+            double depth = ( pt_3d - img_pose->m_pose_w2c_t ).norm(); //地图点到相机距离
+            if ( map_2d_pts_occupied.if_exist( u_i, v_i ) == false ) //不存在则插入hash
             {
                 map_2d_pts_occupied.insert( u_i, v_i, depth );
                 // it->second = cv::Point2f(u, v);
@@ -122,15 +123,16 @@ void Rgbmap_tracker::update_and_append_track_pts( std::shared_ptr< Image_frame >
     map_rgb.m_mutex_pts_vec->lock();
     int new_add_pt = 0;
 
+    //遍历所有能够投影到当前帧的地图点，记录到hash中
     if ( map_rgb.m_pts_rgb_vec_for_projection != nullptr )
     {
-        int pt_size = map_rgb.m_pts_rgb_vec_for_projection->size();
+        int pt_size = map_rgb.m_pts_rgb_vec_for_projection->size();//m_pts_rgb_vec_for_projection:投影到当前帧的地图点
         for ( int i = 0; i < pt_size; i++ )
         {
             if ( m_map_rgb_pts_in_last_frame_pos.find( ( *map_rgb.m_pts_rgb_vec_for_projection )[ i ].get() ) !=
                  m_map_rgb_pts_in_last_frame_pos.end() )
             {
-                continue;
+                continue; // m_map_rgb_pts_in_last_frame_pos中已记录该点
             }
             vec_3 pt_3d = ( *map_rgb.m_pts_rgb_vec_for_projection )[ i ]->get_pos();
             int   res = img_pose->project_3d_point_in_this_img( pt_3d, u_d, v_d, nullptr, 1.0 );
@@ -143,12 +145,12 @@ void Rgbmap_tracker::update_and_append_track_pts( std::shared_ptr< Image_frame >
             if ( res )
             {
                 double depth = ( pt_3d - img_pose->m_pose_w2c_t ).norm();
-                if ( map_2d_pts_occupied.if_exist( u_i, v_i ) == false )
+                if ( map_2d_pts_occupied.if_exist( u_i, v_i ) == false )//hash内未记录该点
                 {
-                    map_2d_pts_occupied.insert( u_i, v_i, depth );
+                    map_2d_pts_occupied.insert( u_i, v_i, depth );//hash: u、v --> depth
                     m_map_rgb_pts_in_last_frame_pos[ ( *map_rgb.m_pts_rgb_vec_for_projection )[ i ].get() ] =
-                        cv::Point2f( u_d, v_d );
-                    new_added_pts++;
+                        cv::Point2f( u_d, v_d );//hash: 3D地图 -->>  2D像素u、v
+                    new_added_pts++;//统计新加点
                 }
             }
             new_add_pt++;
@@ -163,7 +165,7 @@ void Rgbmap_tracker::update_and_append_track_pts( std::shared_ptr< Image_frame >
     }
 
     map_rgb.m_mutex_pts_vec->unlock();
-    update_last_tracking_vector_and_ids();
+    update_last_tracking_vector_and_ids(); // 重新更新追踪的3D、2D点和索引
     // cout << "Update points cost time = " << tim.toc() << endl;
 }
 
@@ -179,8 +181,8 @@ void Rgbmap_tracker::reject_error_tracking_pts( std::shared_ptr< Image_frame > &
     for ( auto it = m_map_rgb_pts_in_current_frame_pos.begin(); it != m_map_rgb_pts_in_current_frame_pos.end(); it++ )
     {
         cv::Point2f predicted_pt = it->second;
-        vec_3       pt_3d = ( ( RGB_pts * ) it->first )->get_pos();
-        int         res = img_pose->project_3d_point_in_this_img( pt_3d, u, v, nullptr, 1.0 );
+        vec_3       pt_3d = ( ( RGB_pts * ) it->first )->get_pos();//获取地图点
+        int         res = img_pose->project_3d_point_in_this_img( pt_3d, u, v, nullptr, 1.0 );//将地图点投影到当前影像
         if ( res )
         {
             if ( ( fabs( u - predicted_pt.x ) > dis ) || ( fabs( v - predicted_pt.y ) > dis ) )
@@ -242,39 +244,42 @@ void Rgbmap_tracker::track_img( std::shared_ptr< Image_frame > &img_pose, double
     tim.tic( "opTrack" );
     std::vector< uchar > status;
     std::vector< float > err;
-    m_current_tracked_pts = m_last_tracked_pts;
+    m_current_tracked_pts = m_last_tracked_pts;//记录当前跟踪点为上一次跟踪点，点数不足时，当前不做跟踪
     int before_track = m_last_tracked_pts.size();
-    if ( m_last_tracked_pts.size() < 30 )
+    if ( m_last_tracked_pts.size() < 30 ) //上一次跟踪点数小于30
     {
-        m_last_frame_time = m_current_frame_time;
+        m_last_frame_time = m_current_frame_time;//更新上一帧时间为当前帧时间后返回
         return;
     }
 
+    //LK光流跟踪
     m_lk_optical_flow_kernel->track_image( frame_gray, m_last_tracked_pts, m_current_tracked_pts, status, 2 );
-    reduce_vector( m_last_tracked_pts, status );
-    reduce_vector( m_old_ids, status );
-    reduce_vector( m_current_tracked_pts, status );
+    reduce_vector( m_last_tracked_pts, status );//按跟踪到的点，减小m_last_tracked_pts的size
+    reduce_vector( m_old_ids, status );//释放空间
+    reduce_vector( m_current_tracked_pts, status );//释放空间
 
     int     after_track = m_last_tracked_pts.size();
-    cv::Mat mat_F;
+    cv::Mat mat_F;//Fundamental Matrix
 
     tim.tic( "Reject_F" );
     unsigned int pts_before_F = m_last_tracked_pts.size();
+    //RANSAC计算基础矩阵
     mat_F = cv::findFundamentalMat( m_last_tracked_pts, m_current_tracked_pts, cv::FM_RANSAC, 1.0, 0.997, status );
     unsigned int size_a = m_current_tracked_pts.size();
-    reduce_vector( m_last_tracked_pts, status );
+    reduce_vector( m_last_tracked_pts, status );//再次释放空间
     reduce_vector( m_old_ids, status );
     reduce_vector( m_current_tracked_pts, status );
 
     m_map_rgb_pts_in_current_frame_pos.clear();
     double frame_time_diff = ( m_current_frame_time - m_last_frame_time );
-    for ( uint i = 0; i < m_last_tracked_pts.size(); i++ )
+    for ( uint i = 0; i < m_last_tracked_pts.size(); i++ )//计算每个跟踪点的速度
     {
+        // 根据像素坐标判断跟踪到的点，是否在给定的fov所确定的边缘内部
         if ( img_pose->if_2d_points_available( m_current_tracked_pts[ i ].x, m_current_tracked_pts[ i ].y, 1.0, 0.05 ) )
         {
             RGB_pts *rgb_pts_ptr = ( ( RGB_pts * ) m_rgb_pts_ptr_vec_in_last_frame[ m_old_ids[ i ] ] );
-            m_map_rgb_pts_in_current_frame_pos[ rgb_pts_ptr ] = m_current_tracked_pts[ i ];
-            cv::Point2f pt_img_vel = ( m_current_tracked_pts[ i ] - m_last_tracked_pts[ i ] ) / frame_time_diff;
+            m_map_rgb_pts_in_current_frame_pos[ rgb_pts_ptr ] = m_current_tracked_pts[ i ]; //跟踪点在当前帧的坐标
+            cv::Point2f pt_img_vel = ( m_current_tracked_pts[ i ] - m_last_tracked_pts[ i ] ) / frame_time_diff;//速度
             rgb_pts_ptr->m_img_pt_in_last_frame = vec_2( m_last_tracked_pts[ i ].x, m_last_tracked_pts[ i ].y );
             rgb_pts_ptr->m_img_pt_in_current_frame =
                 vec_2( m_current_tracked_pts[ i ].x, m_current_tracked_pts[ i ].y );
@@ -284,12 +289,13 @@ void Rgbmap_tracker::track_img( std::shared_ptr< Image_frame > &img_pose, double
 
     if ( dis > 0 )
     {
-        reject_error_tracking_pts( img_pose, dis );
+        reject_error_tracking_pts( img_pose, dis );//通过将3D地图点投影到当前影像，排除像素距离较大的错误跟踪点
     }
 
+    //更新所有跟踪信息
     m_old_gray = frame_gray.clone();
     m_old_frame = m_current_frame;
-    m_map_rgb_pts_in_last_frame_pos = m_map_rgb_pts_in_current_frame_pos;
+    m_map_rgb_pts_in_last_frame_pos = m_map_rgb_pts_in_current_frame_pos; //更新追踪到的点
     update_last_tracking_vector_and_ids();
 
     m_frame_idx++;

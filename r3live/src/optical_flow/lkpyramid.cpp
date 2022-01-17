@@ -789,6 +789,7 @@ int LK_optical_flow_kernel::track_image(const cv::Mat &curr_img, const std::vect
         status[i] = 1;
     }
 
+    //并行跟踪
     cv::parallel_for_(
         Range(0, last_tracked_pts.size()), [&](const Range &range) {
           //   cout << "Range " << range.start << ", " << range.end << endl;
@@ -804,7 +805,7 @@ int LK_optical_flow_kernel::track_image(const cv::Mat &curr_img, const std::vect
 
     swap_image_buffer();
 
-    return std::accumulate(status.begin(), status.end(), 0);
+    return std::accumulate(status.begin(), status.end(), 0);//返回跟踪到的点数
 }
 
 void calculate_optical_flow(InputArray _prevImg, InputArray _nextImg,

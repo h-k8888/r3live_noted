@@ -109,7 +109,7 @@ const double process_noise_sigma = 0.1;
 
 int RGB_pts::update_rgb(const vec_3 &rgb, const double obs_dis, const vec_3 obs_sigma, const double obs_time)
 {
-    if (m_obs_dis != 0 && (obs_dis > m_obs_dis * 1.2))
+    if (m_obs_dis != 0 && (obs_dis > m_obs_dis * 1.2)) //本次距相机距离太远
     {
         return 0;
     }
@@ -117,8 +117,8 @@ int RGB_pts::update_rgb(const vec_3 &rgb, const double obs_dis, const vec_3 obs_
     if( m_N_rgb == 0)
     {
         // For first time of observation.
-        m_last_obs_time = obs_time;
-        m_obs_dis = obs_dis;
+        m_last_obs_time = obs_time; //观测到的时间
+        m_obs_dis = obs_dis; //距相机距离
         for (int i = 0; i < 3; i++)
         {
             m_rgb[i] = rgb[i];
@@ -127,16 +127,16 @@ int RGB_pts::update_rgb(const vec_3 &rgb, const double obs_dis, const vec_3 obs_
         m_N_rgb = 1;
         return 0;
     }
-    // State estimation for robotics, section 2.2.6, page 37-38
+    // State estimation for robotics, section 2.2.6, page 37-38， 高斯pdf归一化积
     for(int i = 0 ; i < 3; i++)
     {
         m_cov_rgb[i] = (m_cov_rgb[i] + process_noise_sigma * (obs_time - m_last_obs_time)); // Add process noise
         double old_sigma = m_cov_rgb[i];
-        m_cov_rgb[i] = sqrt( 1.0 / (1.0 / m_cov_rgb[i] / m_cov_rgb[i] + 1.0 / obs_sigma(i) / obs_sigma(i)) );
-        m_rgb[i] = m_cov_rgb[i] * m_cov_rgb[i] * ( m_rgb[i] / old_sigma / old_sigma + rgb(i) / obs_sigma(i) / obs_sigma(i) );
+        m_cov_rgb[i] = sqrt( 1.0 / (1.0 / m_cov_rgb[i] / m_cov_rgb[i] + 1.0 / obs_sigma(i) / obs_sigma(i)) );// 1 / sigma^2 = 1 / sigma_1^2 + 1 / sigma_2^2
+        m_rgb[i] = m_cov_rgb[i] * m_cov_rgb[i] * ( m_rgb[i] / old_sigma / old_sigma + rgb(i) / obs_sigma(i) / obs_sigma(i) );// miu / sigma^2 = miu_1 / sigma_1^2 + miu_2 / sigma_2^2
     }
 
-    if (obs_dis < m_obs_dis)
+    if (obs_dis < m_obs_dis)//当前距离更小，更新当前距离
     {
         m_obs_dis = obs_dis;
     }
@@ -225,6 +225,7 @@ void Global_map::service_refresh_pts_for_projection()
             // m_rgb_pts_in_recent_visited_voxels = pts_in_recent_hitted_boxes;
             m_mutex_rgb_pts_in_recent_hitted_boxes->unlock();
         }
+        //将3D地图点投影到当前帧，记录3D地图点
         selection_points_for_projection(img_for_projection, pts_rgb_vec_for_projection.get(), nullptr, 10.0, 1);
         m_mutex_pts_vec->lock();
         m_pts_rgb_vec_for_projection = pts_rgb_vec_for_projection;
@@ -299,7 +300,7 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
         {
             if ( added_time - ( *it )->m_last_visited_time > m_recent_visited_voxel_activated_time )
             {
-                it = voxels_recent_visited.erase( it );
+                it = voxels_recent_visited.erase( it ); // 移除地图中过久未访问的珊格
                 continue;
             }
             it++;
@@ -327,7 +328,7 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
             }
         }
         RGB_voxel_ptr box_ptr;
-        if(!m_hashmap_voxels.if_exist(box_x, box_y, box_z))
+        if(!m_hashmap_voxels.if_exist(box_x, box_y, box_z)) //若box不存在，新建box
         {
             std::shared_ptr<RGB_Voxel> box_rgb = std::make_shared<RGB_Voxel>();
             m_hashmap_voxels.insert( box_x, box_y, box_z, box_rgb );
@@ -337,7 +338,7 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
         {
             box_ptr = m_hashmap_voxels.m_map_3d_hash_map[box_x][box_y][box_z];
         }
-        voxels_recent_visited.insert( box_ptr );
+        voxels_recent_visited.insert( box_ptr ); //更新最近访问的box
         box_ptr->m_last_visited_time = added_time;
         if (add == 0)
         {
@@ -345,12 +346,12 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
             continue;
         }
         acc++;
-        std::shared_ptr<RGB_pts> pt_rgb = std::make_shared<RGB_pts>();
+        std::shared_ptr<RGB_pts> pt_rgb = std::make_shared<RGB_pts>(); //新建地图点
         pt_rgb->set_pos(vec_3(pc_in.points[pt_idx].x, pc_in.points[pt_idx].y, pc_in.points[pt_idx].z));
         pt_rgb->m_pt_index = m_rgb_pts_vec.size();
         m_rgb_pts_vec.push_back(pt_rgb);
-        m_hashmap_3d_pts.insert(grid_x, grid_y, grid_z, pt_rgb);
-        box_ptr->add_pt(pt_rgb);
+        m_hashmap_3d_pts.insert(grid_x, grid_y, grid_z, pt_rgb);//新地图点插入hash表
+        box_ptr->add_pt(pt_rgb); //新地图点插入最近访问box
         if (pts_added_vec != nullptr)
         {
             pts_added_vec->push_back(pt_rgb);
@@ -414,15 +415,16 @@ static inline double thread_render_pts_in_voxel(const int & pt_start, const int 
         RGB_voxel_ptr voxel_ptr = (*voxels_for_render)[ voxel_idx ];
         for ( int pt_idx = 0; pt_idx < voxel_ptr->m_pts_in_grid.size(); pt_idx++ )
         {
-            pt_w = voxel_ptr->m_pts_in_grid[pt_idx]->get_pos();
+            pt_w = voxel_ptr->m_pts_in_grid[pt_idx]->get_pos();//3D地图点
             if ( img_ptr->project_3d_point_in_this_img( pt_w, u, v, nullptr, 1.0 ) == false )
             {
                 continue;
             }
-            pt_cam_norm = ( pt_w - img_ptr->m_pose_w2c_t ).norm();
+            pt_cam_norm = ( pt_w - img_ptr->m_pose_w2c_t ).norm();//W系下，相机到地图点距离
             // double gray = img_ptr->get_grey_color(u, v, 0);
             // pts_for_render[i]->update_gray(gray, pt_cam_norm);
-            rgb_color = img_ptr->get_rgb( u, v, 0 );
+            rgb_color = img_ptr->get_rgb( u, v, 0 );//获取影像内对应点rgb
+            //更新voxel内对应点的rgb
             if (  voxel_ptr->m_pts_in_grid[pt_idx]->update_rgb(
                      rgb_color, pt_cam_norm, vec_3( image_obs_cov, image_obs_cov, image_obs_cov ), obs_time ) )
             {
@@ -499,6 +501,7 @@ void Global_map::render_with_a_image(std::shared_ptr<Image_frame> &img_ptr, int 
     render_pts_in_voxels(img_ptr, pts_for_render);
 }
 
+/////将3D地图点投影到当前帧，记录3D地图点，对应的2D地图点
 void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &image_pose, std::vector<std::shared_ptr<RGB_pts>> *pc_out_vec,
                                                             std::vector<cv::Point2f> *pc_2d_out_vec, double minimum_dis,
                                                             int skip_step,
@@ -520,8 +523,8 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
     std::map<int, cv::Point2f> map_idx_draw_center;
     std::map<int, cv::Point2f> map_idx_draw_center_raw_pose;
 
-    int u, v;
-    double u_f, v_f;
+    int u, v;//round
+    double u_f, v_f;//raw
     // cv::namedWindow("Mask", cv::WINDOW_FREERATIO);
     int acc = 0;
     int blk_rej = 0;
@@ -530,7 +533,7 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
     m_mutex_m_box_recent_hitted->lock();
     std::unordered_set< std::shared_ptr< RGB_Voxel > > boxes_recent_hitted = m_voxels_recent_visited;
     m_mutex_m_box_recent_hitted->unlock();
-    if ( (!use_all_pts) && boxes_recent_hitted.size())
+    if ( (!use_all_pts) && boxes_recent_hitted.size())//最近访问的点
     {
         m_mutex_rgb_pts_in_recent_hitted_boxes->lock();
         
@@ -549,13 +552,13 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
     }
     else
     {
-        pts_for_projection = m_rgb_pts_vec;
+        pts_for_projection = m_rgb_pts_vec;//所有地图点
     }
     int pts_size = pts_for_projection.size();
-    for (int pt_idx = 0; pt_idx < pts_size; pt_idx += skip_step)
+    for (int pt_idx = 0; pt_idx < pts_size; pt_idx += skip_step)//投影每个点到2D，并更新深度hash表内的信息
     {
         vec_3 pt = pts_for_projection[pt_idx]->get_pos();
-        double depth = (pt - image_pose->m_pose_w2c_t).norm();
+        double depth = (pt - image_pose->m_pose_w2c_t).norm();//点在当前相机下的深度
         if (depth > m_maximum_depth_for_projection)
         {
             continue;
@@ -564,6 +567,7 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
         {
             continue;
         }
+        //3D地图点投影到当前图像是否有效,不从图像获取对应像素的rgb
         bool res = image_pose->project_3d_point_in_this_img(pt, u_f, v_f, nullptr, 1.0);
         if (res == false)
         {
@@ -571,8 +575,9 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
         }
         u = std::round(u_f / minimum_dis) * minimum_dis; // Why can not work
         v = std::round(v_f / minimum_dis) * minimum_dis;
-        if ((!mask_depth.if_exist(u, v)) || mask_depth.m_map_2d_hash_map[u][v] > depth)
+        if ((!mask_depth.if_exist(u, v)) || mask_depth.m_map_2d_hash_map[u][v] > depth)//未记录对应像素的深度，或已记录的深度大于新的深度
         {
+            //深度hash表更新为当前最新点的信息
             acc++;
             if (mask_index.if_exist(u, v))
             {
@@ -602,7 +607,7 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
     {
         for (auto it = map_idx_draw_center.begin(); it != map_idx_draw_center.end(); it++)
         {
-            pc_2d_out_vec->push_back(map_idx_draw_center_raw_pose[it->first]);
+            pc_2d_out_vec->push_back(map_idx_draw_center_raw_pose[it->first]);//记录3D地图点投影得到的2D坐标
         }
     }
 

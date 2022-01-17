@@ -66,7 +66,7 @@ std::vector< std::shared_ptr< Image_frame > > img_ptr_vec;
 void Offline_map_recorder::insert_image_and_pts( std::shared_ptr< Image_frame > &img_ptr,  std::vector< RGB_pt_ptr > & _visited_points )
 {
     std::vector< RGB_pt_ptr > visited_points , points_viewed_in_this_frame;
-    m_image_pose_vec.push_back( soft_copy_image_frame( img_ptr ) );
+    m_image_pose_vec.push_back( soft_copy_image_frame( img_ptr ) );//copy影像状态量
     std::vector< std::shared_ptr< RGB_pts > > rgb_pts_vec;
     m_global_map->m_mutex_pts_last_visited->lock();
     visited_points = _visited_points;

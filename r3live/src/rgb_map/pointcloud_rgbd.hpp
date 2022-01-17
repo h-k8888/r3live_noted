@@ -82,13 +82,13 @@ class RGB_pts
     int    m_N_rgb = 0;
     int    m_pt_index = 0;
 #endif
-    vec_2      m_img_vel;
-    vec_2      m_img_pt_in_last_frame;
-    vec_2      m_img_pt_in_current_frame;
+    vec_2      m_img_vel; //像素速度
+    vec_2      m_img_pt_in_last_frame;//在上一帧中的坐标
+    vec_2      m_img_pt_in_current_frame;//在当前帧的坐标
     int        m_is_out_lier_count = 0;
     cv::Scalar m_dbg_color;
-    double     m_obs_dis = 0;
-    double     m_last_obs_time = 0;
+    double     m_obs_dis = 0; //距离相机距离
+    double     m_last_obs_time = 0; //观测到的时刻
     void       clear()
     {
         m_rgb[ 0 ] = 0;
@@ -166,7 +166,7 @@ struct Global_map
     std::shared_ptr< std::mutex >                                m_mutex_m_box_recent_hitted;
     std::shared_ptr< std::mutex >                                m_mutex_pts_last_visited;
     Image_frame                                              m_img_for_projection;
-    double                                                       m_recent_visited_voxel_activated_time = 0.0;
+    double                                                       m_recent_visited_voxel_activated_time = 0.0; //地图点的有效时间
     bool                                                         m_in_appending_pts = 0;
     int                                                          m_updated_frame_index = 0;
     std::shared_ptr< std::thread >                               m_thread_service;

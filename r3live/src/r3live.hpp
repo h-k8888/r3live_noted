@@ -135,9 +135,9 @@ public:
     FILE * m_lio_costtime_fp;
     double m_maximum_pt_kdtree_dis = 1.0;
     double m_maximum_res_dis = 1.0;
-    double m_planar_check_dis = 0.05;
-    double m_lidar_imu_time_delay = 0;
-    double m_long_rang_pt_dis = 500.0;
+    double m_planar_check_dis = 0.05; //点到平面距离阈值
+    double m_lidar_imu_time_delay = 0; //lidar imu 时间延迟
+    double m_long_rang_pt_dis = 500.0; //lidar点有效最远距离？
     bool m_if_publish_feature_map = false;
     int iterCount = 0;
     int NUM_MAX_ITERATIONS = 0;
@@ -166,7 +166,7 @@ public:
     double last_timestamp_imu = -1;
     double HALF_FOV_COS = 0.0;
     double FOV_DEG = 0.0;
-    double res_mean_last = 0.05;
+    double res_mean_last = 0.05; // 实际参与点到面ICP的平均残差
     double total_distance = 0.0;
     Eigen::Vector3d position_last = Zero3d;
     double copy_time, readd_time, fov_check_time, readd_box_time, delete_box_time;
@@ -244,8 +244,8 @@ public:
     std::mutex g_mutex_render;
     std::shared_ptr<Image_frame> g_last_image_pose_for_render = nullptr;
     std::list<double> frame_cost_time_vec;
-    Rgbmap_tracker op_track;    
-    Global_map m_map_rgb_pts;
+    Rgbmap_tracker op_track;  //记录各种追踪状态和参数
+    Global_map m_map_rgb_pts; //地图
     int m_maximum_image_buffer = 2;
     int m_track_windows_size = 50;
     double m_minumum_rgb_pts_size = 0.05;
@@ -255,8 +255,8 @@ public:
     int m_if_estimate_intrinsic = 1;
     double m_control_image_freq =  100; 
     int m_maximum_vio_tracked_pts = 300;
-    int m_lio_update_point_step = 1;
-    int m_append_global_map_point_step = 1;
+    int m_lio_update_point_step = 1; //ESIKF迭代时选取配准点的间隔
+    int m_append_global_map_point_step = 1; // 点云加入地图时的间隔
     int m_pub_pt_minimum_views = 5;
     double m_recent_visited_voxel_activated_time = 0.0;
     int m_number_of_new_visited_voxel = 0;
@@ -373,7 +373,7 @@ public:
             get_ros_parameter( m_ros_node_handle, "r3live_common/estimate_intrinsic", m_if_estimate_intrinsic, 0 );
             get_ros_parameter( m_ros_node_handle, "r3live_common/maximum_vio_tracked_pts", m_maximum_vio_tracked_pts, 600 );
         }
-        if ( 1 )
+        if ( 1 ) //LIO  parameters
         {
             scope_color( ANSI_COLOR_GREEN );
             get_ros_parameter( m_ros_node_handle, "r3live_lio/dense_map_enable", dense_map_en, true );
@@ -392,7 +392,7 @@ public:
             get_ros_parameter( m_ros_node_handle, "r3live_lio/publish_feature_map", m_if_publish_feature_map, false );
             get_ros_parameter( m_ros_node_handle, "r3live_lio/lio_update_point_step", m_lio_update_point_step, 1 );
         }
-        if ( 1 )
+        if ( 1 ) //VIO parameters
         {
             scope_color( ANSI_COLOR_BLUE );
             load_vio_parameters();
@@ -404,7 +404,7 @@ public:
         }
         m_thread_pool_ptr = std::make_shared<Common_tools::ThreadPool>(6, true, false); // At least 5 threads are needs, here we allocate 6 threads.
         g_cost_time_logger.init_log( std::string(m_map_output_dir).append("/cost_time_logger.log"));
-        m_map_rgb_pts.set_minmum_dis(m_minumum_rgb_pts_size);
+        m_map_rgb_pts.set_minmum_dis(m_minumum_rgb_pts_size); // 设定地图分辨率
         m_map_rgb_pts.m_recent_visited_voxel_activated_time = m_recent_visited_voxel_activated_time;
         featsFromMap = boost::make_shared<PointCloudXYZINormal>();
         cube_points_add = boost::make_shared<PointCloudXYZINormal>();

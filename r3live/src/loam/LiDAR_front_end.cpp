@@ -12,7 +12,7 @@ typedef pcl::PointXYZINormal PointType;
 
 ros::Publisher pub_full, pub_surf, pub_corn;
 
-enum LID_TYPE
+enum LID_TYPE //LiDAR类型
 {
     MID,
     HORIZON,
@@ -20,15 +20,15 @@ enum LID_TYPE
     OUST64
 };
 
-enum Feature
+enum Feature // 特征类型
 {
     Nor,
-    Poss_Plane,
-    Real_Plane,
-    Edge_Jump,
-    Edge_Plane,
-    Wire,
-    ZeroPoint
+    Poss_Plane, // 可能平面
+    Real_Plane, // 平面
+    Edge_Jump, // 跳跃边
+    Edge_Plane, // 平面交接边
+    Wire, //细线
+    ZeroPoint // 接近0度（边）
 };
 enum Surround
 {
@@ -38,19 +38,19 @@ enum Surround
 enum E_jump
 {
     Nr_nor,
-    Nr_zero,
-    Nr_180,
-    Nr_inf,
-    Nr_blind
+    Nr_zero, //接近0度
+    Nr_180, //接近180度
+    Nr_inf, // 接近远端
+    Nr_blind // 接近近端
 };
 
-struct orgtype
+struct orgtype //用于记录每个点的距离、角度、特征种类等属性
 {
-    double  range;
-    double  dista;
-    double  angle[ 2 ];
-    double  intersect;
-    E_jump  edj[ 2 ];
+    double  range; // 平面距离
+    double  dista; // 与后一个点的间距
+    double  angle[ 2 ]; // cos（当前点指向前一点或后一点的向量， ray）
+    double  intersect; // 当前点与相邻两点的夹角cos值
+    E_jump  edj[ 2 ]; // 点前后两个方向的edge_jump类型
     Feature ftype;
     orgtype()
     {
@@ -66,7 +66,7 @@ const double rad2deg = 180 * M_1_PI;
 
 int    lidar_type;
 double blind, inf_bound;
-int    N_SCANS;
+int    N_SCANS; // ring
 int    group_size;
 double disA, disB;
 double limit_maxmid, limit_midmin, limit_maxmin;
@@ -194,7 +194,7 @@ void   mid_handler( const sensor_msgs::PointCloud2::ConstPtr &msg )
 void horizon_handler( const livox_ros_driver::CustomMsg::ConstPtr &msg )
 {
     double                                 t1 = omp_get_wtime();
-    vector< pcl::PointCloud< PointType > > pl_buff( N_SCANS );
+    vector< pcl::PointCloud< PointType > > pl_buff( N_SCANS );  //每条线的点
     vector< vector< orgtype > >            typess( N_SCANS );
     pcl::PointCloud< PointType >           pl_full, pl_corn, pl_surf;
 
@@ -236,7 +236,7 @@ void horizon_handler( const livox_ros_driver::CustomMsg::ConstPtr &msg )
             pl_full[ i ].curvature = msg->points[ i ].offset_time / float( 1000000 ); // use curvature as time of each laser points
 
             if ( ( std::abs( pl_full[ i ].x - pl_full[ i - 1 ].x ) > 1e-7 ) || ( std::abs( pl_full[ i ].y - pl_full[ i - 1 ].y ) > 1e-7 ) ||
-                 ( std::abs( pl_full[ i ].z - pl_full[ i - 1 ].z ) > 1e-7 ) )
+                 ( std::abs( pl_full[ i ].z - pl_full[ i - 1 ].z ) > 1e-7 ) ) // 间距太小不记录
             {
                 pl_buff[ msg->points[ i ].line ].push_back( pl_full[ i ] );
             }

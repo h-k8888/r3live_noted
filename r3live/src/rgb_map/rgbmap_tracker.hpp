@@ -81,8 +81,8 @@ class Rgbmap_tracker
     std::vector< cv::Point2f > m_last_tracked_pts, m_current_tracked_pts;
     std::vector< cv::Scalar >  m_colors;
     std::vector< void * >      m_rgb_pts_ptr_vec_in_last_frame;
-    std::map< void *, cv::Point2f > m_map_rgb_pts_in_last_frame_pos;
-    std::map< void *, cv::Point2f > m_map_rgb_pts_in_current_frame_pos;
+    std::map< void *, cv::Point2f > m_map_rgb_pts_in_last_frame_pos; // (RGB_pts *) --> 地图点在当前帧的像素坐标
+    std::map< void *, cv::Point2f > m_map_rgb_pts_in_current_frame_pos; // (RGB_pts *) --> 2D地图点在当前帧的像素坐标
 
     std::map< int, std::vector< cv::Point2f > > m_map_id_pts_vec;
     std::map< int, std::vector< int > >         m_map_id_pts_frame;

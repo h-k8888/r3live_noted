@@ -165,6 +165,7 @@ bool Image_frame::if_2d_points_available(const double &u, const double &v, const
     {
         used_fov_margin = fov_mar;
     }
+    // u、v方向是否都在指定fov边缘的内部
     if ((u / scale >= (used_fov_margin * m_img_cols + 1)) && (std::ceil(u / scale) < ((1 - used_fov_margin) * m_img_cols)) &&
         (v / scale >= (used_fov_margin * m_img_rows + 1)) && (std::ceil(v / scale) < ((1 - used_fov_margin) * m_img_rows)))
     {
@@ -201,7 +202,7 @@ inline T getSubPixel(cv::Mat & mat, const double & row, const  double & col, dou
 
 vec_3 Image_frame::get_rgb(double &u, double v, int layer, vec_3 *rgb_dx , vec_3 *rgb_dy )
 {
-    cv::Vec3b rgb = getSubPixel< cv::Vec3b >( m_img, v, u, layer );
+    cv::Vec3b rgb = getSubPixel< cv::Vec3b >( m_img, v, u, layer ); //image插值取rgb， layer: 角点偏移
     if ( rgb_dx != nullptr )
     {
         cv::Vec3b rgb_left = getSubPixel< cv::Vec3b >( m_img, v, u - 1, layer );
@@ -335,6 +336,7 @@ bool Image_frame::project_3d_point_in_this_img(const vec_3 & in_pt, double &u, d
     temp_pt.x = in_pt(0);
     temp_pt.y = in_pt(1);
     temp_pt.z = in_pt(2);
+    //3D地图点投影到当前图像是否有效，有效则获取像素对应的rgb, 返回有效或无效
     return project_3d_point_in_this_img(temp_pt, u, v, rgb_pt, intrinsic_scale);
 }
 

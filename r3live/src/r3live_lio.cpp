@@ -51,7 +51,7 @@ void R3LIVE::imu_cbk( const sensor_msgs::Imu::ConstPtr &msg_in )
 {
     sensor_msgs::Imu::Ptr msg( new sensor_msgs::Imu( *msg_in ) );
     double                timestamp = msg->header.stamp.toSec();
-    g_camera_lidar_queue.imu_in( timestamp );
+    g_camera_lidar_queue.imu_in( timestamp ); // 数据序列内，记录imu时间戳
     mtx_buffer.lock();
     if ( timestamp < last_timestamp_imu )
     {
@@ -63,15 +63,15 @@ void R3LIVE::imu_cbk( const sensor_msgs::Imu::ConstPtr &msg_in )
 
     last_timestamp_imu = timestamp;
 
-    if ( g_camera_lidar_queue.m_if_acc_mul_G )
+    if ( g_camera_lidar_queue.m_if_acc_mul_G ) // init gravity
     {
         msg->linear_acceleration.x *= G_m_s2;
         msg->linear_acceleration.y *= G_m_s2;
         msg->linear_acceleration.z *= G_m_s2;
     }
 
-    imu_buffer_lio.push_back( msg );
-    imu_buffer_vio.push_back( msg );
+    imu_buffer_lio.push_back( msg ); // LIO记录IMU
+    imu_buffer_vio.push_back( msg ); // VIO记录IMU
     // std::cout<<"got imu: "<<timestamp<<" imu size "<<imu_buffer_lio.size()<<std::endl;
     mtx_buffer.unlock();
     sig_buffer.notify_all();
@@ -130,7 +130,7 @@ bool R3LIVE::get_pointcloud_data_from_ros_message( sensor_msgs::PointCloud2::Con
                 {
                     continue;
                 }
-                temp_pt.intensity = ( pcl_rgb_pc.points[ i ].r + pcl_rgb_pc.points[ i ].g + pcl_rgb_pc.points[ i ].b ) / 3.0;
+                temp_pt.intensity = ( pcl_rgb_pc.points[ i ].r + pcl_rgb_pc.points[ i ].g + pcl_rgb_pc.points[ i ].b ) / 3.0; //intensity记录rgb均值
                 temp_pt.curvature = 0;
                 pcl_pc.points[ pt_count ] = temp_pt;
                 pt_count++;
@@ -159,7 +159,7 @@ bool R3LIVE::sync_packages( MeasureGroup &meas )
     if ( !lidar_pushed )
     {
         meas.lidar.reset( new PointCloudXYZINormal() );
-        if ( get_pointcloud_data_from_ros_message( lidar_buffer.front(), *( meas.lidar ) ) == false )
+        if ( get_pointcloud_data_from_ros_message( lidar_buffer.front(), *( meas.lidar ) ) == false ) //将lidar队列头部的数据转换为 PointCloudXYZINormal格式
         {
             return false;
         }
@@ -462,8 +462,8 @@ void R3LIVE::lasermap_fov_segment()
 void R3LIVE::feat_points_cbk( const sensor_msgs::PointCloud2::ConstPtr &msg_in )
 {
     sensor_msgs::PointCloud2::Ptr msg( new sensor_msgs::PointCloud2( *msg_in ) );
-    msg->header.stamp = ros::Time( msg_in->header.stamp.toSec() - m_lidar_imu_time_delay );
-    if ( g_camera_lidar_queue.lidar_in( msg_in->header.stamp.toSec() + 0.1 ) == 0 )
+    msg->header.stamp = ros::Time( msg_in->header.stamp.toSec() - m_lidar_imu_time_delay ); //lidar - 延迟
+    if ( g_camera_lidar_queue.lidar_in( msg_in->header.stamp.toSec() + 0.1 ) == 0 ) // ?? lidar时间戳 + 0.1s < 上一imu时间 - 滑窗时间
     {
         return;
     }
@@ -496,8 +496,8 @@ int R3LIVE::service_LIO_update()
     path.header.stamp = ros::Time::now();
     path.header.frame_id = "/world";
     /*** variables definition ***/
-    Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES > G, H_T_H, I_STATE;
-    G.setZero();
+    Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES > G, H_T_H, I_STATE; //公式（1）, 29维状态量
+    G.setZero(); // K * H
     H_T_H.setZero();
     I_STATE.setIdentity();
 
@@ -507,9 +507,9 @@ int R3LIVE::service_LIO_update()
     cv::Mat matP( 6, 6, CV_32F, cv::Scalar::all( 0 ) );
 
     PointCloudXYZINormal::Ptr feats_undistort( new PointCloudXYZINormal() );
-    PointCloudXYZINormal::Ptr feats_down( new PointCloudXYZINormal() );
-    PointCloudXYZINormal::Ptr laserCloudOri( new PointCloudXYZINormal() );
-    PointCloudXYZINormal::Ptr coeffSel( new PointCloudXYZINormal() );
+    PointCloudXYZINormal::Ptr feats_down( new PointCloudXYZINormal() );//voxel 降采样后的特征点
+    PointCloudXYZINormal::Ptr laserCloudOri( new PointCloudXYZINormal() ); // 记录实际用于point_to_plane ICP的点
+    PointCloudXYZINormal::Ptr coeffSel( new PointCloudXYZINormal() ); // 记录实际用于point_to_plane 的平面参数
 
     /*** variables initialize ***/
     FOV_DEG = fov_deg + 10;
@@ -525,7 +525,7 @@ int R3LIVE::service_LIO_update()
     //------------------------------------------------------------------------------------------------------
     ros::Rate rate( 5000 );
     bool      status = ros::ok();
-    g_camera_lidar_queue.m_liar_frame_buf = &lidar_buffer;
+    g_camera_lidar_queue.m_liar_frame_buf = &lidar_buffer; //指向lidar缓存
     set_initial_state_cov( g_lio_state );
     while ( ros::ok() )
     {
@@ -533,7 +533,7 @@ int R3LIVE::service_LIO_update()
             break;
         ros::spinOnce();
         std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
-        while ( g_camera_lidar_queue.if_lidar_can_process() == false )
+        while ( g_camera_lidar_queue.if_lidar_can_process() == false ) //lidar数据时间必须小于camera数据时间
         {
             ros::spinOnce();
             std::this_thread::yield();
@@ -544,12 +544,12 @@ int R3LIVE::service_LIO_update()
         {
             // printf_line;
             Common_tools::Timer tim;
-            if ( sync_packages( Measures ) == 0 )
+            if ( sync_packages( Measures ) == 0 ) //按照lidar起止时间，筛选区间内imu数据
             {
                 continue;
             }
             int lidar_can_update = 1;
-            g_lidar_star_tim = frame_first_pt_time;
+            g_lidar_star_tim = frame_first_pt_time; //第一个点的时间
             if ( flg_reset )
             {
                 ROS_WARN( "reset when rosbag play back" );
@@ -566,11 +566,12 @@ int R3LIVE::service_LIO_update()
             pca_time = 0;
             svd_time = 0;
             t0 = omp_get_wtime();
+            // IMU向前传播和点云畸变纠正
             p_imu->Process( Measures, g_lio_state, feats_undistort );
 
-            g_camera_lidar_queue.g_noise_cov_acc = p_imu->cov_acc;
-            g_camera_lidar_queue.g_noise_cov_gyro = p_imu->cov_gyr;
-            StatesGroup state_propagate( g_lio_state );
+            g_camera_lidar_queue.g_noise_cov_acc = p_imu->cov_acc; //记录IMU传播后的加速度协方差矩阵
+            g_camera_lidar_queue.g_noise_cov_gyro = p_imu->cov_gyr;//记录IMU传播后的陀螺仪协方差矩阵
+            StatesGroup state_propagate( g_lio_state ); //记录传播（未迭代更新）得到的状态量 X_0
 
             // cout << "G_lio_state.last_update_time =  " << std::setprecision(10) << g_lio_state.last_update_time -g_lidar_star_tim  << endl;
             if ( feats_undistort->empty() || ( feats_undistort == NULL ) )
@@ -618,14 +619,14 @@ int R3LIVE::service_LIO_update()
                 std::cout << "~~~~~~~ Initialize Map iKD-Tree Failed! ~~~~~~~" << std::endl;
                 continue;
             }
-            int featsFromMapNum = ikdtree.size();
+            int featsFromMapNum = ikdtree.size(); //tree size
 
             int feats_down_size = feats_down->points.size();
             
             /*** ICP and iterated Kalman filter update ***/
-            PointCloudXYZINormal::Ptr coeffSel_tmpt( new PointCloudXYZINormal( *feats_down ) );
-            PointCloudXYZINormal::Ptr feats_down_updated( new PointCloudXYZINormal( *feats_down ) );
-            std::vector< double >     res_last( feats_down_size, 1000.0 ); // initial
+            PointCloudXYZINormal::Ptr coeffSel_tmpt( new PointCloudXYZINormal( *feats_down ) ); //记录面特征点对应的平面参数
+            PointCloudXYZINormal::Ptr feats_down_updated( new PointCloudXYZINormal( *feats_down ) ); // IESKF后更新的地图点
+            std::vector< double >     res_last( feats_down_size, 1000.0 ); // initial  点到面的距离残差
 
             if ( featsFromMapNum >= 5 )
             {
@@ -651,13 +652,14 @@ int R3LIVE::service_LIO_update()
                 std::vector< PointVector >        Nearest_Points( feats_down_size );
 
                 int  rematch_num = 0;
-                bool rematch_en = 0;
+                bool rematch_en = 0; //滤波迭代过程中是否重新搜索最近点
                 flg_EKF_converged = 0;
                 deltaR = 0.0;
                 deltaT = 0.0;
                 t2 = omp_get_wtime();
-                double maximum_pt_range = 0.0;
+                double maximum_pt_range = 0.0; //当前scan点到传感器的最大三维距离
                 // cout <<"Preprocess 2 cost time: " << tim.toc("Preprocess") << endl;
+                ///ESIKF核心迭代循环
                 for ( iterCount = 0; iterCount < NUM_MAX_ITERATIONS; iterCount++ )
                 {
                     tim.tic( "Iter" );
@@ -669,19 +671,19 @@ int R3LIVE::service_LIO_update()
                     for ( int i = 0; i < feats_down_size; i += m_lio_update_point_step )
                     {
                         double     search_start = omp_get_wtime();
-                        PointType &pointOri_tmpt = feats_down->points[ i ];
+                        PointType &pointOri_tmpt = feats_down->points[ i ]; //原始数据的点
                         double     ori_pt_dis =
-                            sqrt( pointOri_tmpt.x * pointOri_tmpt.x + pointOri_tmpt.y * pointOri_tmpt.y + pointOri_tmpt.z * pointOri_tmpt.z );
+                            sqrt( pointOri_tmpt.x * pointOri_tmpt.x + pointOri_tmpt.y * pointOri_tmpt.y + pointOri_tmpt.z * pointOri_tmpt.z ); //当前点到传感器距离
                         maximum_pt_range = std::max( ori_pt_dis, maximum_pt_range );
-                        PointType &pointSel_tmpt = feats_down_updated->points[ i ];
+                        PointType &pointSel_tmpt = feats_down_updated->points[ i ]; //更新后的点
 
                         /* transform to world frame */
-                        pointBodyToWorld( &pointOri_tmpt, &pointSel_tmpt );
+                        pointBodyToWorld( &pointOri_tmpt, &pointSel_tmpt ); //点从body转换到world系
                         std::vector< float > pointSearchSqDis_surf;
 
-                        auto &points_near = Nearest_Points[ i ];
+                        auto &points_near = Nearest_Points[ i ]; // 索引i的点，ikd-tree内对应的最近点索引集合
 
-                        if ( iterCount == 0 || rematch_en )
+                        if ( iterCount == 0 || rematch_en ) //初次迭代或迭代过程中重新匹配最近点
                         {
                             point_selected_surf[ i ] = true;
                             /** Find the closest surfaces in the map **/
@@ -689,7 +691,7 @@ int R3LIVE::service_LIO_update()
                             float max_distance = pointSearchSqDis_surf[ NUM_MATCH_POINTS - 1 ];
                             //  max_distance to add residuals
                             // ANCHOR - Long range pt stragetry
-                            if ( max_distance > m_maximum_pt_kdtree_dis )
+                            if ( max_distance > m_maximum_pt_kdtree_dis ) //最大距离大于阈值，面特征匹配排除该点
                             {
                                 point_selected_surf[ i ] = false;
                             }
@@ -702,9 +704,9 @@ int R3LIVE::service_LIO_update()
                         // match_time += omp_get_wtime() - match_start;
                         double pca_start = omp_get_wtime();
                         /// PCA (using minimum square method)
-                        cv::Mat matA0( NUM_MATCH_POINTS, 3, CV_32F, cv::Scalar::all( 0 ) );
-                        cv::Mat matB0( NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all( -1 ) );
-                        cv::Mat matX0( NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all( 0 ) );
+                        cv::Mat matA0( NUM_MATCH_POINTS, 3, CV_32F, cv::Scalar::all( 0 ) ); // NUM_MATCH_POINTS X 3
+                        cv::Mat matB0( NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all( -1 ) ); //NUM_MATCH_POINTS X 1
+                        cv::Mat matX0( NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all( 0 ) ); // NUM_MATCH_POINTS X 1
 
                         for ( int j = 0; j < NUM_MATCH_POINTS; j++ )
                         {
@@ -713,6 +715,7 @@ int R3LIVE::service_LIO_update()
                             matA0.at< float >( j, 2 ) = points_near[ j ].z;
                         }
 
+                        // solve A*X=B
                         cv::solve( matA0, matB0, matX0, cv::DECOMP_QR ); // TODO
 
                         float pa = matX0.at< float >( 0, 0 );
@@ -720,6 +723,7 @@ int R3LIVE::service_LIO_update()
                         float pc = matX0.at< float >( 2, 0 );
                         float pd = 1;
 
+                        //normalized
                         float ps = sqrt( pa * pa + pb * pb + pc * pc );
                         pa /= ps;
                         pb /= ps;
@@ -729,7 +733,7 @@ int R3LIVE::service_LIO_update()
                         bool planeValid = true;
                         for ( int j = 0; j < NUM_MATCH_POINTS; j++ )
                         {
-                            // ANCHOR -  Planar check
+                            // ANCHOR -  Planar check   根据当前点到目标平面距离，判断平面有效性
                             if ( fabs( pa * points_near[ j ].x + pb * points_near[ j ].y + pc * points_near[ j ].z + pd ) >
                                  m_planar_check_dis ) // Raw 0.05
                             {
@@ -746,13 +750,14 @@ int R3LIVE::service_LIO_update()
 
                         if ( planeValid )
                         {
-                            float pd2 = pa * pointSel_tmpt.x + pb * pointSel_tmpt.y + pc * pointSel_tmpt.z + pd;
+                            float pd2 = pa * pointSel_tmpt.x + pb * pointSel_tmpt.y + pc * pointSel_tmpt.z + pd; //点到平面距
+                            // s = 1 - 0.9 × |point_to_plane| / sqrt(point_to_world_origin)
                             float s = 1 - 0.9 * fabs( pd2 ) /
                                               sqrt( sqrt( pointSel_tmpt.x * pointSel_tmpt.x + pointSel_tmpt.y * pointSel_tmpt.y +
                                                           pointSel_tmpt.z * pointSel_tmpt.z ) );
                             // ANCHOR -  Point to plane distance
-                            double acc_distance = ( ori_pt_dis < m_long_rang_pt_dis ) ? m_maximum_res_dis : 1.0;
-                            if ( pd2 < acc_distance )
+                            double acc_distance = ( ori_pt_dis < m_long_rang_pt_dis ) ? m_maximum_res_dis : 1.0; //距离有效，将acc_distance设定为最大残差距离，否则设为1.0
+                            if ( pd2 < acc_distance ) //点到平面距离小于acc_distance
                             {
                                 // if(std::abs(pd2) > 5 * res_mean_last)
                                 // {
@@ -775,9 +780,10 @@ int R3LIVE::service_LIO_update()
                         pca_time += omp_get_wtime() - pca_start;
                     }
                     tim.tic( "Stack" );
-                    double total_residual = 0.0;
-                    laserCloudSelNum = 0;
+                    double total_residual = 0.0; // 残差和
+                    laserCloudSelNum = 0; // 实际ICP点个数
 
+                    ///判断和记录实际用于匹配的点、残差、参数
                     for ( int i = 0; i < coeffSel_tmpt->points.size(); i++ )
                     {
                         if ( point_selected_surf[ i ] && ( res_last[ i ] <= 2.0 ) )
@@ -794,59 +800,62 @@ int R3LIVE::service_LIO_update()
                     solve_start = omp_get_wtime();
 
                     /*** Computation of Measuremnt Jacobian matrix H and measurents vector ***/
-                    Eigen::MatrixXd Hsub( laserCloudSelNum, 6 );
-                    Eigen::VectorXd meas_vec( laserCloudSelNum );
+                    Eigen::MatrixXd Hsub( laserCloudSelNum, 6 ); // m * 6
+                    Eigen::VectorXd meas_vec( laserCloudSelNum ); // m * 1，观测向量
                     Hsub.setZero();
 
+                    ///计算雅可比矩阵和残差
                     for ( int i = 0; i < laserCloudSelNum; i++ )
                     {
                         const PointType &laser_p = laserCloudOri->points[ i ];
                         Eigen::Vector3d  point_this( laser_p.x, laser_p.y, laser_p.z );
-                        point_this += Lidar_offset_to_IMU;
-                        Eigen::Matrix3d point_crossmat;
-                        point_crossmat << SKEW_SYM_MATRIX( point_this );
+                        point_this += Lidar_offset_to_IMU; // 当前点近似转换到IMU系下，未使用lidar与IMU外参的旋转
+                        Eigen::Matrix3d point_crossmat; //pt^
+                        point_crossmat << SKEW_SYM_MATRIX( point_this );//pt^ (IMU系）
 
                         /*** get the normal vector of closest surface/corner ***/
                         const PointType &norm_p = coeffSel->points[ i ];
-                        Eigen::Vector3d  norm_vec( norm_p.x, norm_p.y, norm_p.z );
+                        Eigen::Vector3d  norm_vec( norm_p.x, norm_p.y, norm_p.z );//平面参数
 
                         /*** calculate the Measuremnt Jacobian matrix H ***/
-                        Eigen::Vector3d A( point_crossmat * g_lio_state.rot_end.transpose() * norm_vec );
-                        Hsub.row( i ) << VEC_FROM_ARRAY( A ), norm_p.x, norm_p.y, norm_p.z;
+                        Eigen::Vector3d A( point_crossmat * g_lio_state.rot_end.transpose() * norm_vec ); //p(IMU)^ [R(IMU <-- W) * normal_W]
+                        Hsub.row( i ) << VEC_FROM_ARRAY( A ), norm_p.x, norm_p.y, norm_p.z; // H_theta, H_t
 
                         /*** Measuremnt: distance to the closest surface/corner ***/
                         meas_vec( i ) = -norm_p.intensity;
                     }
 
                     Eigen::Vector3d                           rot_add, t_add, v_add, bg_add, ba_add, g_add;
-                    Eigen::Matrix< double, DIM_OF_STATES, 1 > solution;
-                    Eigen::MatrixXd                           K( DIM_OF_STATES, laserCloudSelNum );
+                    Eigen::Matrix< double, DIM_OF_STATES, 1 > solution; //29 * 1
+                    Eigen::MatrixXd                           K( DIM_OF_STATES, laserCloudSelNum ); //增益 29 * m
 
                     /*** Iterative Kalman Filter Update ***/
                     if ( !flg_EKF_inited )
                     {
                         cout << ANSI_COLOR_RED_BOLD << "Run EKF init" << ANSI_COLOR_RESET << endl;
                         /*** only run in initialization period ***/
-                        set_initial_state_cov( g_lio_state );
+                        set_initial_state_cov( g_lio_state ); //设定初始的协方差矩阵
                     }
                     else
                     {
                         // cout << ANSI_COLOR_RED_BOLD << "Run EKF uph" << ANSI_COLOR_RESET << endl;
-                        auto &&Hsub_T = Hsub.transpose();
+                        auto &&Hsub_T = Hsub.transpose(); //6 * m
                         H_T_H.block< 6, 6 >( 0, 0 ) = Hsub_T * Hsub;
+                        //(29 * 29): K_1 = (H_T_H + P^-1)^-1
                         Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES > &&K_1 =
                             ( H_T_H + ( g_lio_state.cov / LASER_POINT_COV ).inverse() ).inverse();
+                        //增益K: 29 * m
                         K = K_1.block< DIM_OF_STATES, 6 >( 0, 0 ) * Hsub_T;
 
-                        auto vec = state_propagate - g_lio_state;
-                        solution = K * ( meas_vec - Hsub * vec.block< 6, 1 >( 0, 0 ) );
+                        auto vec = state_propagate - g_lio_state; //误差：先验 - 当前迭代值
+                        solution = K * ( meas_vec - Hsub * vec.block< 6, 1 >( 0, 0 ) ); //误差后验(X_k+1 - X_0)
                         // double speed_delta = solution.block( 0, 6, 3, 1 ).norm();
                         // if(solution.block( 0, 6, 3, 1 ).norm() > 0.05 )
                         // {
                         //     solution.block( 0, 6, 3, 1 ) = solution.block( 0, 6, 3, 1 ) / speed_delta * 0.05;
                         // }
 
-                        g_lio_state = state_propagate + solution;
+                        g_lio_state = state_propagate + solution; //更新迭代值 X_k+1 = 传播状态 + 误差后验
                         print_dash_board();
                         // cout << ANSI_COLOR_RED_BOLD << "Run EKF uph, vec = " << vec.head<9>().transpose() << ANSI_COLOR_RESET << endl;
                         rot_add = solution.block< 3, 1 >( 0, 0 );
@@ -868,6 +877,7 @@ int R3LIVE::service_LIO_update()
 
                     /*** Rematch Judgement ***/
                     rematch_en = false;
+                    // 如果已经收敛，或者 （未重新匹配 且 位于倒数第二次迭代）
                     if ( flg_EKF_converged || ( ( rematch_num == 0 ) && ( iterCount == ( NUM_MAX_ITERATIONS - 2 ) ) ) )
                     {
                         rematch_en = true;
@@ -876,7 +886,7 @@ int R3LIVE::service_LIO_update()
 
                     /*** Convergence Judgements and Covariance Update ***/
                     // if (rematch_num >= 10 || (iterCount == NUM_MAX_ITERATIONS - 1))
-                    if ( rematch_num >= 2 || ( iterCount == NUM_MAX_ITERATIONS - 1 ) ) // Fast lio ori version.
+                    if ( rematch_num >= 2 || ( iterCount == NUM_MAX_ITERATIONS - 1 ) ) // Fast lio ori version. 如果重新匹配大于2次，或者位于最后一次迭代
                     {
                         if ( flg_EKF_inited )
                         {
@@ -925,7 +935,7 @@ int R3LIVE::service_LIO_update()
                     if ( cubeI >= 0 && cubeI < laserCloudWidth && cubeJ >= 0 && cubeJ < laserCloudHeight && cubeK >= 0 && cubeK < laserCloudDepth )
                     {
                         int cubeInd = cubeI + laserCloudWidth * cubeJ + laserCloudWidth * laserCloudHeight * cubeK;
-                        featsArray[ cubeInd ]->push_back( pointSel );
+                        featsArray[ cubeInd ]->push_back( pointSel ); //移除的点按照珊格索引，添加到featsArray
                     }
                 }
 
@@ -936,7 +946,7 @@ int R3LIVE::service_LIO_update()
                 }
                 t4 = omp_get_wtime();
                
-                ikdtree.Add_Points( feats_down_updated->points, true );
+                ikdtree.Add_Points( feats_down_updated->points, true ); //降采样后的新点，添加到ikd-tree中
                 
                 kdtree_incremental_time = omp_get_wtime() - t4 + readd_time + readd_box_time + delete_box_time;
                 t5 = omp_get_wtime();

@@ -111,8 +111,9 @@ void ImuProcess::lic_state_propagate( const MeasureGroup &meas, StatesGroup &sta
     PointCloudXYZINormal pcl_out = *( meas.lidar );
     std::sort( pcl_out.points.begin(), pcl_out.points.end(), time_list );
     const double &pcl_end_time = pcl_beg_time + pcl_out.points.back().curvature / double( 1000 );
-    double        end_pose_dt = pcl_end_time - imu_end_time;
+    double        end_pose_dt = pcl_end_time - imu_end_time; // lidar与最后一个IMU的时间差
 
+    //IMU预积分向前传播
     state_inout = imu_preintegration( state_inout, v_imu, end_pose_dt );
     last_imu_ = meas.imu.back();
 }
@@ -123,7 +124,7 @@ bool check_state( StatesGroup &state_inout )
     bool is_fail = false;
     for ( int idx = 0; idx < 3; idx++ )
     {
-        if ( fabs( state_inout.vel_end( idx ) ) > 10 )
+        if ( fabs( state_inout.vel_end( idx ) ) > 10 ) //任一速度分量>10，认为失败
         {
             is_fail = true;
             scope_color( ANSI_COLOR_RED_BG );
@@ -158,7 +159,7 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
 {
     std::unique_lock< std::mutex > lock( g_imu_premutex );
     StatesGroup                    state_inout = state_in;
-    if ( check_state( state_inout ) )
+    if ( check_state( state_inout ) ) //检查速度分量是否过大
     {
         state_inout.display( state_inout, "state_inout" );
         state_in.display( state_in, "state_in" );
@@ -167,7 +168,7 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
     vel_imu = state_inout.vel_end;
     pos_imu = state_inout.pos_end;
     Eigen::Matrix3d R_imu( state_inout.rot_end );
-    Eigen::MatrixXd F_x( Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES >::Identity() );
+    Eigen::MatrixXd F_x( Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES >::Identity() ); //状态量雅可比
     Eigen::MatrixXd cov_w( Eigen::Matrix< double, DIM_OF_STATES, DIM_OF_STATES >::Zero() );
     double          dt = 0;
     int             if_first_imu = 1;
@@ -176,6 +177,8 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
     //        v_imu.back()->header.stamp.toSec() - g_lidar_star_tim,
     //        state_in.last_update_time - g_lidar_star_tim,
     //        state_in.last_update_time - v_imu.front()->header.stamp.toSec());
+
+    //IMU数据序列内计算积分、更新协方差矩阵
     for ( std::deque< sensor_msgs::Imu::ConstPtr >::iterator it_imu = v_imu.begin(); it_imu != ( v_imu.end() - 1 ); it_imu++ )
     {
         // if(g_lidar_star_tim == 0 || state_inout.last_update_time == 0)
@@ -248,8 +251,8 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
 
         state_inout.cov = F_x * state_inout.cov * F_x.transpose() + cov_w;
 
-        R_imu = R_imu * Exp_f;
-        acc_imu = R_imu * acc_avr - state_inout.gravity;
+        R_imu = R_imu * Exp_f; // R * w^ * dt
+        acc_imu = R_imu * acc_avr - state_inout.gravity; // R * a - g
         pos_imu = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
         vel_imu = vel_imu + acc_imu * dt;
         angvel_last = angvel_avr;
@@ -279,6 +282,7 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
         }
         dt = 0.1;
     }
+    // 超出IMU数据时间部分，直接按时间差和最后一个IMU数据传播
     state_inout.vel_end = vel_imu + acc_imu * dt;
     state_inout.rot_end = R_imu * Exp( angvel_avr, dt );
     state_inout.pos_end = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
@@ -298,7 +302,7 @@ StatesGroup ImuProcess::imu_preintegration( const StatesGroup &state_in, std::de
             state_inout.display( state_inout, "state_inout" );
             state_in.display( state_in, "state_in" );
         }
-        check_in_out_state( state_in, state_inout );
+        check_in_out_state( state_in, state_inout ); //检查预积分前后pos是否超过1m，超过认为无效，将传播后状态重置为传播前
     }
     // cout << (state_inout - state_in).transpose() << endl;
     return state_inout;
@@ -382,7 +386,7 @@ void ImuProcess::lic_point_cloud_undistort( const MeasureGroup &meas, const Stat
     state_inout.rot_end = R_imu * Exp( angvel_avr, dt );
     state_inout.pos_end = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
 
-    Eigen::Vector3d pos_liD_e = state_inout.pos_end + state_inout.rot_end * Lidar_offset_to_IMU;
+    Eigen::Vector3d pos_liD_e = state_inout.pos_end + state_inout.rot_end * Lidar_offset_to_IMU; //world系 e时刻 lidar坐标
     // auto R_liD_e   = state_inout.rot_end * Lidar_R_to_IMU;
 
 #ifdef DEBUG_PRINT
@@ -412,7 +416,7 @@ void ImuProcess::lic_point_cloud_undistort( const MeasureGroup &meas, const Stat
              * So if we want to compensate a point at timestamp-i to the frame-e
              * P_compensate = R_imu_e ^ T * (R_i * P_i + T_ei) where T_ei is represented in global frame */
             Eigen::Matrix3d R_i( R_imu * Exp( angvel_avr, dt ) );
-            Eigen::Vector3d T_ei( pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt + R_i * Lidar_offset_to_IMU - pos_liD_e );
+            Eigen::Vector3d T_ei( pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt + R_i * Lidar_offset_to_IMU - pos_liD_e ); //？？
 
             Eigen::Vector3d P_i( it_pcl->x, it_pcl->y, it_pcl->z );
             Eigen::Vector3d P_compensate = state_inout.rot_end.transpose() * ( R_i * P_i + T_ei );
@@ -474,13 +478,13 @@ void ImuProcess::Process( const MeasureGroup &meas, StatesGroup &stat, PointClou
     {
         if ( 1 )
         {
-            lic_point_cloud_undistort( meas, stat, *cur_pcl_un_ );
+            lic_point_cloud_undistort( meas, stat, *cur_pcl_un_ ); //点云畸变纠正
         }
         else
         {
             *cur_pcl_un_ = *meas.lidar;
         }
-        lic_state_propagate( meas, stat );
+        lic_state_propagate( meas, stat ); //IMU状态传播，不做点云畸变纠正，此处更新state状态量
     }
     // t2 = omp_get_wtime();
 
